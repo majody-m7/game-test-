@@ -1,10 +1,10 @@
 import 'package:flutter/material.dart';
 import '../models/vehicle.dart';
 
-/// Renders a single vehicle as a stylized top-down car: a rounded body,
-/// a windshield/cabin band, headlights at the front, taillights at the
-/// back, and wheels peeking out from the long sides. Shakes briefly when
-/// the player taps it while it's still blocked.
+/// Renders a single vehicle as a stylized top-down vehicle whose look
+/// scales with its size: a 1-cell vehicle reads as a motorcycle, a 2-cell
+/// vehicle as a sedan, and anything 3 cells or longer as a bus/truck.
+/// Shakes briefly when the player taps it while it's still blocked.
 class VehicleTile extends StatefulWidget {
   final Vehicle vehicle;
   final double cellSize;
@@ -81,11 +81,11 @@ class _VehicleTileState extends State<VehicleTile>
           margin: const EdgeInsets.all(margin),
           child: CustomPaint(
             size: Size(tileWidth, tileHeight),
-            painter: _CarPainter(
+            painter: _VehiclePainter(
               color: v.color,
               horizontal: horizontal,
               forward: v.direction == 1,
-              isLong: v.length >= 3,
+              length: v.length,
             ),
           ),
         ),
@@ -94,21 +94,30 @@ class _VehicleTileState extends State<VehicleTile>
   }
 }
 
-/// Paints a stylized top-down vehicle - rounded body, cabin/windshield
-/// band, headlights, taillights, and wheels - so each piece on the board
-/// reads clearly as "a car" without relying on licensed artwork or photos.
-class _CarPainter extends CustomPainter {
+enum _VehicleKind { bike, car, bus }
+
+/// Paints a stylized top-down vehicle. The silhouette changes with how many
+/// cells the vehicle occupies so the board reads as genuine mixed traffic
+/// (motorcycles, sedans, buses/trucks) instead of same-shaped blocks in
+/// different colors.
+class _VehiclePainter extends CustomPainter {
   final Color color;
   final bool horizontal;
   final bool forward;
-  final bool isLong;
+  final int length;
 
-  _CarPainter({
+  _VehiclePainter({
     required this.color,
     required this.horizontal,
     required this.forward,
-    required this.isLong,
+    required this.length,
   });
+
+  _VehicleKind get _kind {
+    if (length <= 1) return _VehicleKind.bike;
+    if (length == 2) return _VehicleKind.car;
+    return _VehicleKind.bus;
+  }
 
   Color _shade(Color c, double amount) {
     final hsl = HSLColor.fromColor(c);
@@ -121,7 +130,7 @@ class _CarPainter extends CustomPainter {
     canvas.save();
 
     // Work in a "local" space where x runs along the vehicle's length and
-    // y runs across its width, then rotate into place for vertical cars.
+    // y runs across its width, then rotate into place for vertical vehicles.
     double lenAxis, widAxis;
     if (horizontal) {
       lenAxis = size.width;
@@ -134,19 +143,86 @@ class _CarPainter extends CustomPainter {
       widAxis = size.width;
     }
 
+    switch (_kind) {
+      case _VehicleKind.bike:
+        _paintBike(canvas, lenAxis, widAxis);
+        break;
+      case _VehicleKind.car:
+        _paintCar(canvas, lenAxis, widAxis);
+        break;
+      case _VehicleKind.bus:
+        _paintBus(canvas, lenAxis, widAxis);
+        break;
+    }
+
+    canvas.restore();
+  }
+
+  void _paintBike(Canvas canvas, double lenAxis, double widAxis) {
+    final midY = widAxis / 2;
+    final bodyWidth = widAxis * 0.4;
+    final bodyRect = Rect.fromCenter(
+      center: Offset(lenAxis / 2, midY),
+      width: lenAxis * 0.86,
+      height: bodyWidth,
+    );
+    final bodyRRect = RRect.fromRectAndRadius(bodyRect, Radius.circular(bodyWidth * 0.5));
+
+    canvas.drawRRect(
+      bodyRRect.shift(const Offset(0, 1.5)),
+      Paint()..color = Colors.black.withOpacity(0.2),
+    );
+
+    final wheelPaint = Paint()..color = const Color(0xFF2B2B2B);
+    final wheelR = widAxis * 0.16;
+    canvas.drawCircle(Offset(lenAxis * 0.12, midY), wheelR, wheelPaint);
+    canvas.drawCircle(Offset(lenAxis * 0.88, midY), wheelR, wheelPaint);
+    final hubPaint = Paint()..color = const Color(0xFF6B6B6B);
+    canvas.drawCircle(Offset(lenAxis * 0.12, midY), wheelR * 0.4, hubPaint);
+    canvas.drawCircle(Offset(lenAxis * 0.88, midY), wheelR * 0.4, hubPaint);
+
+    canvas.drawRRect(bodyRRect, Paint()..color = color);
+    canvas.drawRRect(
+      bodyRRect,
+      Paint()
+        ..color = Colors.white.withOpacity(0.35)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1.2,
+    );
+
+    final seatCenter = Offset(lenAxis * 0.5, midY);
+    canvas.drawOval(
+      Rect.fromCenter(center: seatCenter, width: lenAxis * 0.22, height: bodyWidth * 0.8),
+      Paint()..color = _shade(color, -0.28),
+    );
+
+    final frontHandleX = forward ? lenAxis * 0.82 : lenAxis * 0.18;
+    canvas.drawLine(
+      Offset(frontHandleX, midY - widAxis * 0.26),
+      Offset(frontHandleX, midY + widAxis * 0.26),
+      Paint()
+        ..color = const Color(0xFF2B2B2B)
+        ..strokeWidth = widAxis * 0.06
+        ..strokeCap = StrokeCap.round,
+    );
+
+    final frontTip = forward ? lenAxis * 0.94 : lenAxis * 0.06;
+    final backTip = forward ? lenAxis * 0.06 : lenAxis * 0.94;
+    canvas.drawCircle(Offset(frontTip, midY), widAxis * 0.1, Paint()..color = const Color(0xFFFFF3B0));
+    canvas.drawCircle(Offset(backTip, midY), widAxis * 0.08, Paint()..color = const Color(0xFFE63946));
+  }
+
+  void _paintCar(Canvas canvas, double lenAxis, double widAxis) {
     final bodyRect = Rect.fromLTWH(0, 0, lenAxis, widAxis);
     final bodyRRect = RRect.fromRectAndRadius(bodyRect, Radius.circular(widAxis * 0.32));
 
-    // Drop shadow.
     canvas.drawRRect(
       bodyRRect.shift(const Offset(0, 1.5)),
       Paint()..color = Colors.black.withOpacity(0.22),
     );
 
-    // Body.
     canvas.drawRRect(bodyRRect, Paint()..color = color);
 
-    // Body outline for a bit of pop against similarly-colored neighbors.
     canvas.drawRRect(
       bodyRRect,
       Paint()
@@ -155,31 +231,23 @@ class _CarPainter extends CustomPainter {
         ..strokeWidth = 1.4,
     );
 
-    // Wheels along the two long edges.
     final wheelPaint = Paint()..color = const Color(0xFF2B2B2B);
     final wheelR = widAxis * 0.13;
-    final wheelPositions = isLong
-        ? [lenAxis * 0.2, lenAxis * 0.5, lenAxis * 0.8]
-        : [lenAxis * 0.26, lenAxis * 0.74];
-    for (final wx in wheelPositions) {
+    for (final wx in [lenAxis * 0.26, lenAxis * 0.74]) {
       canvas.drawCircle(Offset(wx, 0), wheelR, wheelPaint);
       canvas.drawCircle(Offset(wx, widAxis), wheelR, wheelPaint);
     }
 
-    // Cabin / windshield band, offset toward the front so the car reads as
-    // "driving" the way it will exit.
     final cabinCenter = forward ? lenAxis * 0.60 : lenAxis * 0.40;
-    final cabinWidth = lenAxis * (isLong ? 0.34 : 0.42);
     final cabinRect = Rect.fromCenter(
       center: Offset(cabinCenter, widAxis / 2),
-      width: cabinWidth,
+      width: lenAxis * 0.42,
       height: widAxis * 0.72,
     );
     canvas.drawRRect(
       RRect.fromRectAndRadius(cabinRect, Radius.circular(widAxis * 0.18)),
       Paint()..color = _shade(color, -0.22).withOpacity(0.85),
     );
-    // Windshield glass glint.
     canvas.drawRRect(
       RRect.fromRectAndRadius(
         cabinRect.deflate(widAxis * 0.08),
@@ -188,9 +256,73 @@ class _CarPainter extends CustomPainter {
       Paint()..color = Colors.white.withOpacity(0.18),
     );
 
-    // Headlights at the front edge, taillights at the back edge.
-    final lightW = widAxis * 0.16;
-    final lightH = widAxis * 0.22;
+    _paintLights(canvas, lenAxis, widAxis, lightScale: 1.0);
+  }
+
+  void _paintBus(Canvas canvas, double lenAxis, double widAxis) {
+    final bodyRect = Rect.fromLTWH(0, 0, lenAxis, widAxis);
+    final bodyRRect = RRect.fromRectAndRadius(bodyRect, Radius.circular(widAxis * 0.2));
+
+    canvas.drawRRect(
+      bodyRRect.shift(const Offset(0, 1.5)),
+      Paint()..color = Colors.black.withOpacity(0.24),
+    );
+
+    canvas.drawRRect(bodyRRect, Paint()..color = color);
+
+    canvas.drawRRect(
+      bodyRRect,
+      Paint()
+        ..color = Colors.white.withOpacity(0.35)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1.4,
+    );
+
+    final wheelPaint = Paint()..color = const Color(0xFF2B2B2B);
+    final wheelR = widAxis * 0.12;
+    for (final wx in [lenAxis * 0.18, lenAxis * 0.5, lenAxis * 0.82]) {
+      canvas.drawCircle(Offset(wx, 0), wheelR, wheelPaint);
+      canvas.drawCircle(Offset(wx, widAxis), wheelR, wheelPaint);
+    }
+
+    final frontX = forward ? lenAxis - lenAxis * 0.14 : lenAxis * 0.14;
+    final cabRect = Rect.fromCenter(
+      center: Offset(frontX, widAxis / 2),
+      width: lenAxis * 0.16,
+      height: widAxis * 0.7,
+    );
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(cabRect, Radius.circular(widAxis * 0.14)),
+      Paint()..color = _shade(color, -0.26).withOpacity(0.9),
+    );
+
+    final windowPaint = Paint()..color = _shade(color, -0.16).withOpacity(0.85);
+    final glintPaint = Paint()..color = Colors.white.withOpacity(0.2);
+    const windowCount = 3;
+    final spanStart = lenAxis * 0.28;
+    final spanEnd = lenAxis * 0.86;
+    final span = spanEnd - spanStart;
+    for (var i = 0; i < windowCount; i++) {
+      final wx = spanStart + span * (i + 0.5) / windowCount;
+      if ((wx - frontX).abs() < lenAxis * 0.1) continue;
+      final winRect = Rect.fromCenter(
+        center: Offset(wx, widAxis / 2),
+        width: (span / windowCount) * 0.6,
+        height: widAxis * 0.5,
+      );
+      canvas.drawRRect(RRect.fromRectAndRadius(winRect, Radius.circular(widAxis * 0.08)), windowPaint);
+      canvas.drawRRect(
+        RRect.fromRectAndRadius(winRect.deflate(widAxis * 0.05), Radius.circular(widAxis * 0.05)),
+        glintPaint,
+      );
+    }
+
+    _paintLights(canvas, lenAxis, widAxis, lightScale: 1.15);
+  }
+
+  void _paintLights(Canvas canvas, double lenAxis, double widAxis, {required double lightScale}) {
+    final lightW = widAxis * 0.16 * lightScale;
+    final lightH = widAxis * 0.22 * lightScale;
     final frontX = forward ? lenAxis - lenAxis * 0.05 : lenAxis * 0.05;
     final backX = forward ? lenAxis * 0.05 : lenAxis - lenAxis * 0.05;
 
@@ -213,14 +345,13 @@ class _CarPainter extends CustomPainter {
         taillightPaint,
       );
     }
-
-    canvas.restore();
   }
 
   @override
-  bool shouldRepaint(covariant _CarPainter oldDelegate) =>
+  bool shouldRepaint(covariant _VehiclePainter oldDelegate) =>
       oldDelegate.color != color ||
       oldDelegate.horizontal != horizontal ||
       oldDelegate.forward != forward ||
-      oldDelegate.isLong != isLong;
+      oldDelegate.length != length;
 }
+
